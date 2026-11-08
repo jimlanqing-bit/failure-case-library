@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>失败案例库</title>
+<style>
+  :root { --fg:#1f2328; --muted:#656d76; --line:#d0d7de; --bg:#fff; --accent:#1f4e78; --tag:#eef2f6; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg); background:var(--bg); }
+  header { position:sticky; top:0; z-index:10; background:#fff; border-bottom:1px solid var(--line); padding:12px 20px; }
+  header h1 { margin:0 0 8px; font-size:18px; color:var(--accent); }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+  .toolbar input, .toolbar select { padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:14px; }
+  .toolbar input { flex:1; min-width:200px; }
+  main { max-width:980px; margin:0 auto; padding:20px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; cursor:pointer; transition:border-color .15s; }
+  .card:hover { border-color:var(--accent); }
+  .card h3 { margin:0 0 6px; font-size:16px; }
+  .card .meta { color:var(--muted); font-size:13px; margin-bottom:8px; }
+  .card .concl { color:var(--fg); font-size:14px; }
+  .tags { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .tag { background:var(--tag); border-radius:4px; padding:1px 8px; font-size:12px; color:var(--muted); }
+  .detail h2 { font-size:22px; margin:0 0 4px; }
+  .detail .sub { color:var(--muted); font-size:14px; margin-bottom:16px; }
+  .section { margin:22px 0; }
+  .section h3 { font-size:16px; color:var(--accent); border-left:3px solid var(--accent); padding-left:8px; margin:0 0 10px; }
+  .field { margin:10px 0; }
+  .field .label { font-weight:600; font-size:14px; margin-bottom:4px; }
+  .field .value { white-space:pre-wrap; }
+  details { border:1px solid var(--line); border-radius:6px; padding:8px 12px; margin:8px 0; }
+  details summary { cursor:pointer; font-weight:600; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; margin:8px 0; font-size:14px; }
+  th, td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#f6f8fa; font-weight:600; }
+  ul, ol { padding-left:22px; }
+  .back { display:inline-block; margin-bottom:12px; color:var(--accent); cursor:pointer; }
+  .empty { color:var(--muted); text-align:center; padding:40px 0; }
+  @media (max-width:640px){ main{padding:12px;} table{display:block; overflow-x:auto;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>失败案例库</h1>
+  <div class="toolbar">
+    <input id="q" placeholder="搜索：事件 / 主体 / 结论 / 标签…">
+    <select id="fType"><option value="">全部失败类型</option></select>
+    <select id="fEvidence"><option value="">全部证据强度</option><option>强</option><option>中高</option><option>中</option><option>弱</option></select>
+  </div>
+</header>
+<main id="app"></main>
+
+<script>
+let DATA = null;
+const app = document.getElementById('app');
+const q = document.getElementById('q');
+const fType = document.getElementById('fType');
+const fEvidence = document.getElementById('fEvidence');
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const isObj = v => v && typeof v === 'object';
+
+// 把 JSON 数组渲染成表格：取所有对象的键做表头
+function renderTable(arr) {
+  if (!Array.isArray(arr) || !arr.length) return '';
+  if (!isObj(arr[0])) return `<ol>${arr.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
+  const keys = [...new Set(arr.flatMap(o => Object.keys(o)))];
+  const head = keys.map(k => `<th>${esc(k)}</th>`).join('');
+  const body = arr.map(o => `<tr>${keys.map(k => `<td>${esc(o[k] ?? '')}</td>`).join('')}</tr>`).join('');
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+// 按字段名决定渲染方式
+function renderValue(key, val) {
+  if (val == null || val === '') return '<span style="color:#8b949e">—</span>';
+  if (key === '红队问题_JSON' && Array.isArray(val)) return `<ol>${val.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`;
+  if (key.endsWith('_JSON') && isObj(val)) {
+    if (val._raw) return `<pre style="white-space:pre-wrap">${esc(val._raw)}</pre>`;
+    return renderTable(val);
+  }
+  return `<div class="value">${esc(val)}</div>`;
+}
+
+function cardHtml(c) {
+  const tags = (c['失败类型标签'] || '').split(/[；;、]/).filter(Boolean).slice(0,5);
+  return `<div class="card" data-id="${esc(c._id)}">
+    <h3>${esc(c['事件'] || c._id)}</h3>
+    <div class="meta">${esc(c['案例编号'])} · ${esc(c['主体类型'])} · ${esc(c['时间范围'])} · 证据强度：${esc(c['证据强度'])}</div>
+    <div class="concl">${esc((c['一句话结论']||'').slice(0,140))}${(c['一句话结论']||'').length>140?'…':''}</div>
+    <div class="tags">${tags.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+  </div>`;
+}
+
+function renderList() {
+  const kw = q.value.trim().toLowerCase();
+  const type = fType.value;
+  const ev = fEvidence.value;
+  const list = DATA.cases.filter(c => {
+    const hit = !kw || Object.values(c).some(v => typeof v === 'string' && v.toLowerCase().includes(kw))
+      || JSON.stringify(c).toLowerCase().includes(kw);
+    const typeHit = !type || (c['失败类型标签']||'').includes(type);
+    const evHit = !ev || (c['证据强度']||'').includes(ev);
+    return hit && typeHit && evHit;
+  });
+  app.innerHTML = list.length
+    ? list.map(cardHtml).join('')
+    : '<div class="empty">没有匹配的案例</div>';
+  document.querySelectorAll('.card').forEach(el => el.onclick = () => location.hash = '#/case/' + encodeURIComponent(el.dataset.id));
+}
+
+function renderDetail(c) {
+  const sections = DATA.groups.map(([title, cols]) => {
+    const fields = cols.filter(k => c[k] != null && c[k] !== '').map(k => `
+      <div class="field">
+        <div class="label">${esc(k.replace(/_JSON$/,''))}</div>
+        ${renderValue(k, c[k])}
+      </div>`).join('');
+    return fields ? `<div class="section"><h3>${esc(title)}</h3>${fields}</div>` : '';
+  }).join('');
+  app.innerHTML = `<div class="detail">
+    <span class="back" onclick="location.hash='#/'">← 返回列表</span>
+    <h2>${esc(c['事件'] || c._id)}</h2>
+    <div class="sub">${esc(c['案例编号'])} · ${esc(c['主体类型'])} · ${esc(c['地域'])} · ${esc(c['时间范围'])}</div>
+    ${sections}
+  </div>`;
+}
+
+function route() {
+  const h = decodeURIComponent(location.hash || '#/');
+  const m = h.match(/^#\/case\/(.+)$/);
+  if (m) {
+    const c = DATA.cases.find(x => x._id === m[1]);
+    if (c) { renderDetail(c); window.scrollTo(0,0); return; }
+  }
+  renderList();
+}
+
+async function boot() {
+  DATA = await (await fetch('cases.json')).json();
+  // 填充失败类型筛选
+  const types = new Set();
+  DATA.cases.forEach(c => (c['失败类型标签']||'').split(/[；;、]/).forEach(t => t.trim() && types.add(t.trim())));
+  [...types].sort().forEach(t => fType.insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`));
+  q.oninput = renderList; fType.onchange = renderList; fEvidence.onchange = renderList;
+  window.onhashchange = route;
+  route();
+}
+boot();
+</script>
+</body>
+</html>
